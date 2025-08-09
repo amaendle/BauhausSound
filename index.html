@@ -3,22 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bauhaus Sound Generator – Advanced (Fix + Tests)</title>
+  <title>Bauhaus Sound Generator – Advanced</title>
   <style>
     :root{
       --bg:#f2f2f2; --fg:#111; --muted:#666; --accent:#111;
       --red:#e63946; --blue:#1d3557; --yellow:#f1c40f; --black:#000; --white:#fff;
     }
     *{box-sizing:border-box}
-    body{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Fira Sans", Helvetica, Arial, sans-serif; display:flex; flex-direction:column; min-height:100vh; }
-    header{ padding:24px; display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; border-bottom:2px solid #ddd; }
+    body{
+      margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Fira Sans", Helvetica, Arial, sans-serif;
+      display:flex; flex-direction:column; min-height:100vh;
+    }
+    header{
+      padding:24px; display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+      border-bottom:2px solid #ddd;
+    }
     .title{font-weight:700; letter-spacing:.02em}
     .badge{display:inline-flex; gap:8px; align-items:center}
     .shape{width:16px; height:16px; display:inline-block}
     .sq{background:var(--red)}
     .ci{background:var(--yellow); border-radius:50%}
     .tr{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:16px solid var(--blue)}
-    main{display:grid; grid-template-columns: 1fr 380px; gap:16px; padding:16px; flex:1}
+    main{display:grid; grid-template-columns: 1fr 360px; gap:16px; padding:16px; flex:1}
     canvas{width:100%; height:100%; background:linear-gradient(180deg,#fff, #eee)}
     .panel{background:#fff; border:2px solid #111; padding:12px; border-radius:12px; box-shadow:4px 4px 0 #111}
     fieldset{border:1px solid #ccc; border-radius:8px; padding:8px 10px; margin:0 0 10px 0}
@@ -30,9 +36,6 @@
     button.secondary{background:#fff; color:#111; border:2px solid #111}
     .row{display:flex; gap:8px; flex-wrap:wrap}
     .small{font-size:.875rem; color:var(--muted)}
-    .ok{color:#0a7f2e; font-weight:700}
-    .fail{color:#b00020; font-weight:700}
-    .monospace{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
   </style>
 </head>
 <body>
@@ -52,7 +55,6 @@
       <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
         <button id="btnPlay">🎶 Start</button>
         <button id="btnRandom" class="secondary">🎲 Zufall</button>
-        <button id="btnTests" class="secondary">🧪 Tests</button>
       </div>
 
       <fieldset>
@@ -129,23 +131,14 @@
         </label>
       </fieldset>
 
-      <details class="small">
-        <summary>🧪 Test-Resultate</summary>
-        <div id="testResults" class="monospace"></div>
-      </details>
-
       <div class="small">Tipp: Passe Tempo, Skala und Filter an – alles läuft live weiter.</div>
     </aside>
   </main>
 
   <script>
-  // ======== FIX: Avoid exponentialRamp to 0 ========
-  // Some browsers throw a RangeError if exponentialRampToValueAtTime targets 0.
-  // We clamp envelope targets to a tiny epsilon and short-circuit scheduling when volumes are zero-ish.
-  const EPS = 1e-5; // > 1.4e-45, safe for ramps
-
   // ======== Utility: Notes & Scales ========
   const NOTE_INDEX = {C:0, 'C#':1, D:2, 'D#':3, E:4, F:5, 'F#':6, G:7, 'G#':8, A:9, 'A#':10, B:11};
+  const A4 = 440;
   function midiToFreq(m){ return 440 * Math.pow(2, (m-69)/12); }
   function noteFreq(root, offsetSemis, octave=4){
     const rootIdx = NOTE_INDEX[root];
@@ -211,9 +204,12 @@
     while(state.nextNoteTime < ctx.currentTime + state.scheduleAheadTime){
       const n = state.current16th;
       const time = state.nextNoteTime;
-      if(n % 2 === 0){ if(state.volSq > EPS) { playPerc(time); } triggerViz('sq', time); }
-      if(n % 4 === 0){ if(state.volCi > EPS) { playMelody(time); } triggerViz('ci', time); }
-      if(n % (state.beatsPerBar*4) === 0){ if(state.volTr > EPS) { playPad(time); } triggerViz('tr', time); state.barCount++; maybeModulate(); }
+      // Schedule SQ (Perc) on every 8th (i.e., two 16ths) for a 1/8 note pulse
+      if(n % 2 === 0){ playPerc(time); triggerViz('sq', time); }
+      // Schedule CI (Melody) on beat starts (every 4 16ths)
+      if(n % 4 === 0){ playMelody(time); triggerViz('ci', time); }
+      // Schedule TR (Pad) on bar start
+      if(n % (state.beatsPerBar*4) === 0){ playPad(time); triggerViz('tr', time); state.barCount++; maybeModulate(); }
 
       state.nextNoteTime += secondsPer16th;
       state.current16th = (n+1) % (state.beatsPerBar*4);
@@ -223,26 +219,26 @@
   function nextPitch(){
     const degrees = SCALES[state.scale];
     const deg = degrees[Math.floor(Math.random()*degrees.length)];
+    // jitter up/down an octave sometimes
     const oct = Math.random()<0.15 ? 5 : 4;
     return noteFreq(state.root, deg, oct);
   }
 
   function chordPitches(){
     const degrees = SCALES[state.scale];
+    // pick a root degree and stack thirds within scale
     const idx = Math.floor(Math.random()*degrees.length);
     const d1 = degrees[idx];
     const d2 = degrees[(idx+2)%degrees.length];
     const d3 = degrees[(idx+4)%degrees.length];
-    return [d1,d2,d3].map((d)=> noteFreq(state.root, d, 3));
+    return [d1,d2,d3].map((d,i)=> noteFreq(state.root, d, 3 + (i>0?0:0)));
   }
 
   function env(time, duration, peak=0.25){
-    const p = Math.max(EPS, peak || 0); // clamp to safe value, never 0
-    const d = Math.max(0.02, duration || 0.02);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(EPS, time);
-    g.gain.exponentialRampToValueAtTime(p, time+0.01);
-    g.gain.exponentialRampToValueAtTime(EPS, time+d);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(peak, time+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, time+duration);
     return g;
   }
 
@@ -256,10 +252,11 @@
   function playMelody(time){
     const f = nextPitch();
     const o = ctx.createOscillator(); o.type = state.waveCi; o.frequency.setValueAtTime(f, time);
-    const g = env(time, 0.24, state.volCi);
-    if(Math.random()<0.4){ o.frequency.linearRampToValueAtTime(f * (Math.random()<0.5? 2:0.5), time+0.18); }
+    const g = env(time, 0.22, state.volCi);
+    // gentle portamento
+    if(Math.random()<0.4){ o.frequency.linearRampToValueAtTime(f* (Math.random()<0.5? 2:0.5), time+0.18); }
     o.connect(g).connect(engine.preFX);
-    o.start(time); o.stop(time+0.26);
+    o.start(time); o.stop(time+0.24);
   }
 
   function playPad(time){
@@ -277,14 +274,16 @@
     const bars = Number(document.getElementById('modBars').value)||state.modBars;
     if(!bars || bars<=0) return;
     if(state.barCount % bars === 0){
+      // rotate root by perfect fourth (5 semis) or fifth (7 semis)
       const roots = Object.keys(NOTE_INDEX);
       const currentIdx = roots.indexOf(state.root);
-      const step = Math.random()<0.5? 5:7; // 4ths / 5ths
+      const step = Math.random()<0.5? 5:7; // circle of fourths/fifths
       const newIdx = (currentIdx + step) % 12;
       state.root = roots[newIdx];
       document.getElementById('root').value = state.root;
+      // slight filter sweep as a transition
       const target = Math.max(400, Math.min(6000, filter.frequency.value * (Math.random()<0.5?1.5:0.8)));
-      if(ctx){ filter.frequency.linearRampToValueAtTime(target, ctx.currentTime+2); }
+      filter.frequency.linearRampToValueAtTime(target, ctx.currentTime+2);
       flashBanner(`${state.root} – Modulation`);
     }
   }
@@ -304,7 +303,7 @@
     if(schedulerTimer) clearInterval(schedulerTimer);
     if(vizTimer) cancelAnimationFrame(vizTimer);
     try{ ctx && ctx.close(); }catch(e){}
-    ctx = null; // guard applyUI to not touch currentTime when stopped
+    ctx = null;
   }
 
   // ======== UI Wiring ========
@@ -338,9 +337,9 @@
     state.volCi = Number($('volCi').value); state.waveCi = $('waveCi').value;
     state.volTr = Number($('volTr').value); state.waveTr = $('waveTr').value; state.padDur = Number($('padDur').value)||1.5;
     state.cutoff = Number($('cutoff').value); state.delayMix = Number($('delayMix').value); state.lfo = $('lfo').checked;
-    if(filter && ctx){ filter.frequency.setTargetAtTime(state.cutoff, ctx.currentTime, 0.05); }
-    if(delayGain && ctx){ delayGain.gain.setTargetAtTime(state.delayMix, ctx.currentTime, 0.1); }
-    if(lfoGain && ctx){ lfoGain.gain.setValueAtTime(state.lfo ? 1200 : 0, ctx.currentTime); }
+    if(filter){ filter.frequency.setTargetAtTime(state.cutoff, ctx.currentTime, 0.05); }
+    if(delayGain){ delayGain.gain.setTargetAtTime(state.delayMix, ctx.currentTime, 0.1); }
+    if(lfoGain){ lfoGain.gain.setValueAtTime(state.lfo ? 1200 : 0, ctx.currentTime); }
   }
   ['bpm','beatsPerBar','root','scale','modBars','volSq','waveSq','volCi','waveCi','volTr','waveTr','padDur','cutoff','delayMix','lfo']
     .forEach(id=> $(id).addEventListener('input', applyUI));
@@ -353,4 +352,93 @@
   window.dispatchEvent(new Event('resize'));
 
   const vizState = { pulses:[], banner:null };
-  function triggerViz(kin
+  function triggerViz(kind, time){
+    vizState.pulses.push({ kind, t: time, x: Math.random()*w, y: Math.random()*h, life: 0 });
+  }
+  function flashBanner(text){ vizState.banner = { text, until: performance.now()+1800 }; }
+
+  function startViz(){
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    function loop(){
+      vizTimer = requestAnimationFrame(loop);
+      analyser.getByteFrequencyData(data);
+      const avg = data.slice(0,128).reduce((a,b)=>a+b,0)/128/255; // rough energy
+      // background
+      ctx2d.fillStyle = '#ffffff'; ctx2d.fillRect(0,0,w,h);
+
+      // grid aesthetic
+      ctx2d.save();
+      ctx2d.globalAlpha = 0.05;
+      const step = 40;
+      ctx2d.strokeStyle = '#000000';
+      for(let x=0;x<w;x+=step){ ctx2d.beginPath(); ctx2d.moveTo(x,0); ctx2d.lineTo(x,h); ctx2d.stroke(); }
+      for(let y=0;y<h;y+=step){ ctx2d.beginPath(); ctx2d.moveTo(0,y); ctx2d.lineTo(w,y); ctx2d.stroke(); }
+      ctx2d.restore();
+
+      // pulses
+      const now = ctx? ctx.currentTime : 0;
+      vizState.pulses = vizState.pulses.filter(p=> (now - p.t) < 2.0);
+      vizState.pulses.forEach(p=>{
+        const age = Math.max(0, now - p.t);
+        const scale = 1 + age*2.5;
+        ctx2d.save();
+        if(p.kind==='sq'){ ctx2d.fillStyle = '#e63946'; const s = 18*scale; ctx2d.fillRect(p.x - s/2, p.y - s/2, s, s); }
+        if(p.kind==='ci'){ ctx2d.fillStyle = '#f1c40f'; ctx2d.beginPath(); ctx2d.arc(p.x, p.y, 10*scale, 0, Math.PI*2); ctx2d.fill(); }
+        if(p.kind==='tr'){
+          ctx2d.fillStyle = '#1d3557'; const s = 24*scale;
+          ctx2d.beginPath();
+          ctx2d.moveTo(p.x, p.y - s/2);
+          ctx2d.lineTo(p.x - s/2, p.y + s/2);
+          ctx2d.lineTo(p.x + s/2, p.y + s/2);
+          ctx2d.closePath(); ctx2d.fill();
+        }
+        ctx2d.restore();
+      });
+
+      // central reactive shapes
+      const centerX = w*0.5, centerY = h*0.5;
+      const base = Math.min(w,h)*0.18;
+      // square (beat)
+      ctx2d.save();
+      ctx2d.translate(centerX - base*1.2, centerY);
+      const sqSize = base * (0.9 + avg*0.6);
+      ctx2d.fillStyle = '#e63946';
+      ctx2d.fillRect(-sqSize/2, -sqSize/2, sqSize, sqSize);
+      ctx2d.restore();
+      // circle (melody)
+      ctx2d.save();
+      ctx2d.translate(centerX, centerY);
+      const radius = base * (0.8 + avg*0.8);
+      ctx2d.fillStyle = '#f1c40f';
+      ctx2d.beginPath(); ctx2d.arc(0,0,radius,0,Math.PI*2); ctx2d.fill();
+      ctx2d.restore();
+      // triangle (pad)
+      ctx2d.save();
+      ctx2d.translate(centerX + base*1.2, centerY);
+      const t = base * (0.9 + avg*0.5);
+      ctx2d.fillStyle = '#1d3557';
+      ctx2d.beginPath(); ctx2d.moveTo(0, -t/1.1); ctx2d.lineTo(-t/1.1, t/1.1); ctx2d.lineTo(t/1.1, t/1.1); ctx2d.closePath(); ctx2d.fill();
+      ctx2d.restore();
+
+      // banner
+      if(vizState.banner && performance.now() < vizState.banner.until){
+        ctx2d.save();
+        ctx2d.globalAlpha = 0.85;
+        ctx2d.fillStyle = '#000';
+        const pad = 16; const txt = vizState.banner.text;
+        ctx2d.font = 'bold 40px system-ui';
+        const tw = ctx2d.measureText(txt).width;
+        ctx2d.fillRect((w-tw)/2 - pad, 40, tw + pad*2, 64);
+        ctx2d.fillStyle = '#fff';
+        ctx2d.fillText(txt, (w-tw)/2, 85);
+        ctx2d.restore();
+      }
+    }
+    loop();
+  }
+
+  // Initialize UI defaults
+  applyUI();
+  </script>
+</body>
+</html>
