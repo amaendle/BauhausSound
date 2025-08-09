@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bauhaus Sound Generator – Advanced (Fix + Tests)</title>
+  <style>
+    :root{
+      --bg:#f2f2f2; --fg:#111; --muted:#666; --accent:#111;
+      --red:#e63946; --blue:#1d3557; --yellow:#f1c40f; --black:#000; --white:#fff;
+    }
+    *{box-sizing:border-box}
+    body{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Fira Sans", Helvetica, Arial, sans-serif; display:flex; flex-direction:column; min-height:100vh; }
+    header{ padding:24px; display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap; border-bottom:2px solid #ddd; }
+    .title{font-weight:700; letter-spacing:.02em}
+    .badge{display:inline-flex; gap:8px; align-items:center}
+    .shape{width:16px; height:16px; display:inline-block}
+    .sq{background:var(--red)}
+    .ci{background:var(--yellow); border-radius:50%}
+    .tr{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:16px solid var(--blue)}
+    main{display:grid; grid-template-columns: 1fr 380px; gap:16px; padding:16px; flex:1}
+    canvas{width:100%; height:100%; background:linear-gradient(180deg,#fff, #eee)}
+    .panel{background:#fff; border:2px solid #111; padding:12px; border-radius:12px; box-shadow:4px 4px 0 #111}
+    fieldset{border:1px solid #ccc; border-radius:8px; padding:8px 10px; margin:0 0 10px 0}
+    legend{font-weight:600}
+    label{display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; margin:6px 0}
+    input[type="range"]{width:160px}
+    select, input[type="number"], input[type="checkbox"]{accent-color:#111}
+    button{appearance:none; border:none; background:#111; color:#fff; padding:10px 14px; font-weight:700; border-radius:10px; box-shadow:3px 3px 0 #000; cursor:pointer}
+    button.secondary{background:#fff; color:#111; border:2px solid #111}
+    .row{display:flex; gap:8px; flex-wrap:wrap}
+    .small{font-size:.875rem; color:var(--muted)}
+    .ok{color:#0a7f2e; font-weight:700}
+    .fail{color:#b00020; font-weight:700}
+    .monospace{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">Bauhaus Sound Generator – <span class="small">Generativ · Offline · Web Audio API</span></div>
+    <div class="badge" aria-hidden="true">
+      <span class="shape sq"></span>
+      <span class="shape ci"></span>
+      <span class="shape tr"></span>
+    </div>
+  </header>
+  <main>
+    <section class="panel" style="padding:0; overflow:hidden">
+      <canvas id="viz" width="1200" height="600"></canvas>
+    </section>
+    <aside class="panel" aria-label="Steuerung">
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+        <button id="btnPlay">🎶 Start</button>
+        <button id="btnRandom" class="secondary">🎲 Zufall</button>
+        <button id="btnTests" class="secondary">🧪 Tests</button>
+      </div>
+
+      <fieldset>
+        <legend>Tempo & Takt</legend>
+        <label>Tempo (BPM)
+          <input id="bpm" type="range" min="40" max="160" value="80" />
+        </label>
+        <label>Schläge pro Takt
+          <input id="beatsPerBar" type="number" min="2" max="12" value="4" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Tonleiter & Modulation</legend>
+        <label>Grundton
+          <select id="root">
+            <option>C</option><option>C#</option><option>D</option><option>D#</option>
+            <option>E</option><option>F</option><option>F#</option><option>G</option>
+            <option>G#</option><option>A</option><option>A#</option><option>B</option>
+          </select>
+        </label>
+        <label>Skala
+          <select id="scale">
+            <option value="major-pentatonic">Dur-Pentatonik</option>
+            <option value="minor-pentatonic">Moll-Pentatonik</option>
+            <option value="dorian">Dorisch</option>
+            <option value="lydian">Lydisch</option>
+            <option value="phrygian">Phrygisch</option>
+          </select>
+        </label>
+        <label>Automodulation (Takte)
+          <input id="modBars" type="number" min="0" step="1" value="8" />
+        </label>
+        <div class="small">0 = keine Automodulation</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Stimmen</legend>
+        <label>◼︎ Quadrat (Perc) Lautstärke
+          <input id="volSq" type="range" min="0" max="1" step="0.01" value="0.25" />
+        </label>
+        <label>Wellenform
+          <select id="waveSq"><option>square</option><option>triangle</option><option>sawtooth</option><option>sine</option></select>
+        </label>
+        <hr />
+        <label>● Kreis (Melodie) Lautstärke
+          <input id="volCi" type="range" min="0" max="1" step="0.01" value="0.2" />
+        </label>
+        <label>Wellenform
+          <select id="waveCi"><option>sine</option><option>triangle</option><option>sawtooth</option><option>square</option></select>
+        </label>
+        <hr />
+        <label>△ Dreieck (Fläche) Lautstärke
+          <input id="volTr" type="range" min="0" max="1" step="0.01" value="0.15" />
+        </label>
+        <label>Wellenform
+          <select id="waveTr"><option>triangle</option><option>sine</option><option>square</option><option>sawtooth</option></select>
+        </label>
+        <label>Pad-Dauer (s)
+          <input id="padDur" type="number" min="0.5" step="0.1" value="1.5" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Effekte</legend>
+        <label>Filter-Cutoff (Hz)
+          <input id="cutoff" type="range" min="200" max="6000" value="2000" />
+        </label>
+        <label>Delay-Mix
+          <input id="delayMix" type="range" min="0" max="0.8" step="0.01" value="0.2" />
+        </label>
+        <label>Auto-LFO Filter
+          <input id="lfo" type="checkbox" checked />
+        </label>
+      </fieldset>
+
+      <details class="small">
+        <summary>🧪 Test-Resultate</summary>
+        <div id="testResults" class="monospace"></div>
+      </details>
+
+      <div class="small">Tipp: Passe Tempo, Skala und Filter an – alles läuft live weiter.</div>
+    </aside>
+  </main>
+
+  <script>
+  // ======== FIX: Avoid exponentialRamp to 0 ========
+  // Some browsers throw a RangeError if exponentialRampToValueAtTime targets 0.
+  // We clamp envelope targets to a tiny epsilon and short-circuit scheduling when volumes are zero-ish.
+  const EPS = 1e-5; // > 1.4e-45, safe for ramps
+
+  // ======== Utility: Notes & Scales ========
+  const NOTE_INDEX = {C:0, 'C#':1, D:2, 'D#':3, E:4, F:5, 'F#':6, G:7, 'G#':8, A:9, 'A#':10, B:11};
+  function midiToFreq(m){ return 440 * Math.pow(2, (m-69)/12); }
+  function noteFreq(root, offsetSemis, octave=4){
+    const rootIdx = NOTE_INDEX[root];
+    const midi = 12*(octave+1) + rootIdx + offsetSemis;
+    return midiToFreq(midi);
+  }
+  const SCALES = {
+    'major-pentatonic':[0,2,4,7,9],
+    'minor-pentatonic':[0,3,5,7,10],
+    'dorian':[0,2,3,5,7,9,10],
+    'lydian':[0,2,4,6,7,9,11],
+    'phrygian':[0,1,3,5,7,8,10]
+  };
+
+  // ======== Audio Engine ========
+  let ctx, master, analyser, filter, delay, delayGain, lfoOsc, lfoGain;
+  let schedulerTimer=null, vizTimer=null;
+  const state = {
+    bpm: 80,
+    beatsPerBar: 4,
+    barCount: 0,
+    nextNoteTime: 0,
+    current16th: 0,
+    lookahead: 25, // ms
+    scheduleAheadTime: 0.1, // s
+    isPlaying:false,
+    // params
+    root:'C', scale:'major-pentatonic', modBars:8,
+    volSq:0.25, volCi:0.2, volTr:0.15,
+    waveSq:'square', waveCi:'sine', waveTr:'triangle',
+    padDur:1.5, cutoff:2000, delayMix:0.2, lfo:true
+  };
+
+  function initAudio(){
+    ctx = new (window.AudioContext||window.webkitAudioContext)();
+    master = ctx.createGain(); master.gain.value = 0.9;
+    filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = state.cutoff; filter.Q.value = 0.707;
+    delay = ctx.createDelay(1.0); delay.delayTime.value = 0.28;
+    delayGain = ctx.createGain(); delayGain.gain.value = state.delayMix;
+    analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+
+    // LFO for filter
+    lfoOsc = ctx.createOscillator(); lfoOsc.type = 'sine'; lfoOsc.frequency.value = 0.08; // very slow
+    lfoGain = ctx.createGain(); lfoGain.gain.value = state.lfo ? 1200 : 0; // depth in Hz
+    lfoOsc.connect(lfoGain).connect(filter.frequency);
+    lfoOsc.start();
+
+    // routing
+    const preFX = ctx.createGain();
+    preFX.connect(filter);
+    filter.connect(delay);
+    filter.connect(master);
+    delay.connect(delayGain).connect(master);
+    master.connect(analyser).connect(ctx.destination);
+
+    engine.preFX = preFX;
+  }
+
+  const engine = { preFX:null };
+
+  function schedule(){
+    const secondsPer16th = 60.0 / state.bpm / 4.0;
+    while(state.nextNoteTime < ctx.currentTime + state.scheduleAheadTime){
+      const n = state.current16th;
+      const time = state.nextNoteTime;
+      if(n % 2 === 0){ if(state.volSq > EPS) { playPerc(time); } triggerViz('sq', time); }
+      if(n % 4 === 0){ if(state.volCi > EPS) { playMelody(time); } triggerViz('ci', time); }
+      if(n % (state.beatsPerBar*4) === 0){ if(state.volTr > EPS) { playPad(time); } triggerViz('tr', time); state.barCount++; maybeModulate(); }
+
+      state.nextNoteTime += secondsPer16th;
+      state.current16th = (n+1) % (state.beatsPerBar*4);
+    }
+  }
+
+  function nextPitch(){
+    const degrees = SCALES[state.scale];
+    const deg = degrees[Math.floor(Math.random()*degrees.length)];
+    const oct = Math.random()<0.15 ? 5 : 4;
+    return noteFreq(state.root, deg, oct);
+  }
+
+  function chordPitches(){
+    const degrees = SCALES[state.scale];
+    const idx = Math.floor(Math.random()*degrees.length);
+    const d1 = degrees[idx];
+    const d2 = degrees[(idx+2)%degrees.length];
+    const d3 = degrees[(idx+4)%degrees.length];
+    return [d1,d2,d3].map((d)=> noteFreq(state.root, d, 3));
+  }
+
+  function env(time, duration, peak=0.25){
+    const p = Math.max(EPS, peak || 0); // clamp to safe value, never 0
+    const d = Math.max(0.02, duration || 0.02);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(EPS, time);
+    g.gain.exponentialRampToValueAtTime(p, time+0.01);
+    g.gain.exponentialRampToValueAtTime(EPS, time+d);
+    return g;
+  }
+
+  function playPerc(time){
+    const o = ctx.createOscillator(); o.type = state.waveSq; o.frequency.setValueAtTime(800, time);
+    const g = env(time, 0.06, state.volSq);
+    o.connect(g).connect(engine.preFX);
+    o.start(time); o.stop(time+0.06);
+  }
+
+  function playMelody(time){
+    const f = nextPitch();
+    const o = ctx.createOscillator(); o.type = state.waveCi; o.frequency.setValueAtTime(f, time);
+    const g = env(time, 0.24, state.volCi);
+    if(Math.random()<0.4){ o.frequency.linearRampToValueAtTime(f * (Math.random()<0.5? 2:0.5), time+0.18); }
+    o.connect(g).connect(engine.preFX);
+    o.start(time); o.stop(time+0.26);
+  }
+
+  function playPad(time){
+    const dur = Math.max(0.5, Number(document.getElementById('padDur').value)||state.padDur);
+    const pitches = chordPitches();
+    pitches.forEach((f,i)=>{
+      const o = ctx.createOscillator(); o.type = state.waveTr; o.frequency.setValueAtTime(f, time);
+      const g = env(time, dur, state.volTr * (i===0?1:0.7));
+      o.connect(g).connect(engine.preFX);
+      o.start(time); o.stop(time+dur);
+    });
+  }
+
+  function maybeModulate(){
+    const bars = Number(document.getElementById('modBars').value)||state.modBars;
+    if(!bars || bars<=0) return;
+    if(state.barCount % bars === 0){
+      const roots = Object.keys(NOTE_INDEX);
+      const currentIdx = roots.indexOf(state.root);
+      const step = Math.random()<0.5? 5:7; // 4ths / 5ths
+      const newIdx = (currentIdx + step) % 12;
+      state.root = roots[newIdx];
+      document.getElementById('root').value = state.root;
+      const target = Math.max(400, Math.min(6000, filter.frequency.value * (Math.random()<0.5?1.5:0.8)));
+      if(ctx){ filter.frequency.linearRampToValueAtTime(target, ctx.currentTime+2); }
+      flashBanner(`${state.root} – Modulation`);
+    }
+  }
+
+  // ======== Transport ========
+  function start(){
+    if(state.isPlaying) return;
+    if(!ctx) initAudio();
+    state.isPlaying = true;
+    state.nextNoteTime = ctx.currentTime + 0.1;
+    state.current16th = 0; state.barCount = 0;
+    schedulerTimer = setInterval(schedule, state.lookahead);
+    startViz();
+  }
+  function stop(){
+    state.isPlaying = false;
+    if(schedulerTimer) clearInterval(schedulerTimer);
+    if(vizTimer) cancelAnimationFrame(vizTimer);
+    try{ ctx && ctx.close(); }catch(e){}
+    ctx = null; // guard applyUI to not touch currentTime when stopped
+  }
+
+  // ======== UI Wiring ========
+  const $ = (id)=>document.getElementById(id);
+  $('btnPlay').addEventListener('click',()=>{
+    if(!state.isPlaying){ start(); $('btnPlay').textContent='⏸️ Pause'; }
+    else { stop(); $('btnPlay').textContent='🎶 Start'; }
+  });
+  $('btnRandom').addEventListener('click',()=>{
+    $('bpm').value = String(60 + Math.floor(Math.random()*80));
+    $('beatsPerBar').value = [3,4,5,6][Math.floor(Math.random()*4)];
+    $('root').selectedIndex = Math.floor(Math.random()*12);
+    $('scale').selectedIndex = Math.floor(Math.random()*5);
+    $('modBars').value = [0,4,8,12][Math.floor(Math.random()*4)];
+    $('volSq').value = (Math.random()*0.5).toFixed(2);
+    $('volCi').value = (Math.random()*0.5).toFixed(2);
+    $('volTr').value = (Math.random()*0.5).toFixed(2);
+    $('waveSq').selectedIndex = Math.floor(Math.random()*4);
+    $('waveCi').selectedIndex = Math.floor(Math.random()*4);
+    $('waveTr').selectedIndex = Math.floor(Math.random()*4);
+    $('cutoff').value = String(400 + Math.floor(Math.random()*4600));
+    $('delayMix').value = (Math.random()*0.6).toFixed(2);
+    applyUI();
+  });
+
+  function applyUI(){
+    state.bpm = Number($('bpm').value);
+    state.beatsPerBar = Math.max(2, Math.min(12, Number($('beatsPerBar').value)||4));
+    state.root = $('root').value; state.scale = $('scale').value; state.modBars = Number($('modBars').value)||0;
+    state.volSq = Number($('volSq').value); state.waveSq = $('waveSq').value;
+    state.volCi = Number($('volCi').value); state.waveCi = $('waveCi').value;
+    state.volTr = Number($('volTr').value); state.waveTr = $('waveTr').value; state.padDur = Number($('padDur').value)||1.5;
+    state.cutoff = Number($('cutoff').value); state.delayMix = Number($('delayMix').value); state.lfo = $('lfo').checked;
+    if(filter && ctx){ filter.frequency.setTargetAtTime(state.cutoff, ctx.currentTime, 0.05); }
+    if(delayGain && ctx){ delayGain.gain.setTargetAtTime(state.delayMix, ctx.currentTime, 0.1); }
+    if(lfoGain && ctx){ lfoGain.gain.setValueAtTime(state.lfo ? 1200 : 0, ctx.currentTime); }
+  }
+  ['bpm','beatsPerBar','root','scale','modBars','volSq','waveSq','volCi','waveCi','volTr','waveTr','padDur','cutoff','delayMix','lfo']
+    .forEach(id=> $(id).addEventListener('input', applyUI));
+
+  // ======== Visualization ========
+  const canvas = document.getElementById('viz');
+  const ctx2d = canvas.getContext('2d');
+  let w = canvas.width, h = canvas.height;
+  window.addEventListener('resize', ()=>{ canvas.width = canvas.clientWidth*2; canvas.height = canvas.clientHeight*2; w=canvas.width; h=canvas.height; });
+  window.dispatchEvent(new Event('resize'));
+
+  const vizState = { pulses:[], banner:null };
+  function triggerViz(kin
